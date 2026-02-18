@@ -1,51 +1,37 @@
-const { default: makeWASocket, useMultiFileAuthState, downloadMediaMessage } = require("@whiskeysockets/baileys")
+const { default: makeWASocket, useMultiFileAuthState, DisconnectReason } = require("@whiskeysockets/baileys")
 const qrcode = require("qrcode-terminal")
+const P = require("pino")
 
 async function startBot() {
     const { state, saveCreds } = await useMultiFileAuthState("auth")
-    const sock = makeWASocket({ auth: state })
+    const sock = makeWASocket({
+        logger: P({ level: "silent" }),
+        auth: state,
+        browser: ["Bot Stiker", "Chrome", "1.0.0"]
+    })
 
     sock.ev.on("connection.update", (update) => {
-        const { qr } = update
-        if (qr) qrcode.generate(qr, { small: true })
+        const { connection, lastDisconnect, qr } = update
+
+        if (qr) {
+            console.log("Scan QR ini:")
+            qrcode.generate(qr, { small: true })
+        }
+
+        if (connection === "close") {
+            const shouldReconnect =
+                lastDisconnect?.error?.output?.statusCode !== DisconnectReason.loggedOut
+            if (shouldReconnect) {
+                startBot()
+            }
+        }
+
+        if (connection === "open") {
+            console.log("Bot berhasil connect ✅")
+        }
     })
 
     sock.ev.on("creds.update", saveCreds)
-
-    sock.ev.on("messages.upsert", async ({ messages }) => {
-        const msg = messages[0]
-        if (!msg.message) return
-
-        const text = msg.message.conversation || msg.message.extendedTextMessage?.text
-
-        // Sticker Random
-        if (text === "sticker random") {
-            const stickers = [
-                "https://raw.githubusercontent.com/adiwajshing/Baileys/master/Media/ma_gif.webp",
-                "https://raw.githubusercontent.com/adiwajshing/Baileys/master/Media/ma.webp"
-            ]
-
-            const random = stickers[Math.floor(Math.random() * stickers.length)]
-
-            await sock.sendMessage(msg.key.remoteJid, {
-                sticker: { url: random }
-            })
-        }
-
-        // Auto gambar jadi stiker
-        if (msg.message.imageMessage) {
-            const buffer = await downloadMediaMessage(
-                msg,
-                "buffer",
-                {},
-                { logger: console }
-            )
-
-            await sock.sendMessage(msg.key.remoteJid, {
-                sticker: buffer
-            })
-        }
-    })
 }
 
 startBot()
